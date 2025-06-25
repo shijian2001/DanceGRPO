@@ -408,8 +408,20 @@ def main(_):
                     )
             rewards = []
             tuwen_rewards = []
+            images_list = []
 
-            vqa_scores = torch.diagonal(reward_model(images=images, texts=current_batch))
+            for j, image in enumerate(images):
+                pil = Image.fromarray(
+                    (image.to(torch.float32).cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+                )
+                pil = pil.resize((512, 512))
+                image_path = os.path.join("./images_same", f"image-{i}-{j}-rank-{dist.get_rank()}.jpg")
+                pil.save(image_path)
+                images_list.append(image_path)
+                
+
+
+            vqa_scores = torch.diagonal(reward_model(images=images_list, texts=current_batch))
             rewards.append(vqa_scores)
 
 
