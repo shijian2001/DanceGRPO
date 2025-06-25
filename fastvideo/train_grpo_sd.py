@@ -262,7 +262,7 @@ def main(_):
     # prepare prompt and reward fn
   
     import t2v_metrics
-    model = t2v_metrics.VQAScore(model='clip-flant5-xxl') # our recommended scoring model
+    model = t2v_metrics.VQAScore(model='clip-flant5-xxl', cache_dir="./reward_model/clip-flant5-xxl")
     reward_model = model.to(device)
     reward_model.eval()
     
