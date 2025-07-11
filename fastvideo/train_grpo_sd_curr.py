@@ -38,19 +38,9 @@ import random
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from safetensors.torch import save_file
+from curr_sampler import CurrDistributedSampler
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
-
-class PromptDataset(Dataset):
-    def __init__(self, file_path):
-        with open(file_path, "r", encoding='utf-8') as f:
-            self.prompts = [line.strip() for line in f if line.strip()]
-            
-    def __len__(self):
-        return len(self.prompts)
-    
-    def __getitem__(self, idx):
-        return self.prompts[idx]
     
 
 class SceneDataset(Dataset):
@@ -364,14 +354,16 @@ def main(_):
     dataset = SceneDataset('./data/curr_rft_data_20250709.json')
     
     
-    sampler = DistributedSampler(
+    sampler = CurrDistributedSampler(
         dataset,
         num_replicas=torch.distributed.get_world_size(),
         rank=torch.distributed.get_rank(),
         seed = 123543,
-        shuffle=True  
-    )
-    
+        strategy="cosine", # "timestep", "balance", "cosine", "gaussian"
+        total_steps=300,
+        alpha=0.5,
+        beta=0.8,
+    )   
     
     loader = DataLoader(
         dataset,
@@ -391,6 +383,7 @@ def main(_):
     import torch.distributed as dist
     global_step = 0
     for epoch, scenes in enumerate(loader):
+        sampler.set_epoch(epoch)
         #################### SAMPLING ####################
         pipeline.unet.eval()
         samples = []
@@ -460,7 +453,7 @@ def main(_):
                     (image.to(torch.float32).cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
                 )
                 pil = pil.resize((512, 512))
-                image_path = os.path.join("./images_same_20250709", f"image-{i}-{j}-rank-{dist.get_rank()}.jpg")
+                image_path = os.path.join("./images_same", f"image-{i}-{j}-rank-{dist.get_rank()}.jpg")
                 pil.save(image_path)
                 images_list.append(image_path)
 
@@ -524,7 +517,7 @@ def main(_):
 
         if dist.get_rank()==0:
             print("gathered_reward", all_rewards_world)
-            with open('./reward_shuffle_20250711.txt', 'a') as f:  # 'a'模式表示追加到文件末尾
+            with open('./reward_shuffle_testcurr.txt', 'a') as f:  # 'a'模式表示追加到文件末尾
                 f.write(f"{all_rewards_world.mean().item()}\n")
 
         #samples = {k: v.cuda() for k, v in samples.items()}  # 假设原始数据在GPU
@@ -699,7 +692,7 @@ def main(_):
         if epoch != 0 and epoch % config.save_freq == 0: # 
         #if epoch % config.save_freq == 0: 
             if accelerator.is_main_process:
-                base_checkpoint_dir = "/mnt/tidal-alsh01/dataset/video_agent_data/ckpt/curr/20250711/my_checkpoints"
+                base_checkpoint_dir = "/mnt/tidal-alsh01/dataset/video_agent_data/ckpt/curr/testcurr/my_checkpoints"
                 # Create a unique directory for this specific checkpoint
                 checkpoint_epoch_dir = os.path.join(base_checkpoint_dir, f"checkpoint_epoch_{epoch}")
                 os.makedirs(checkpoint_epoch_dir, exist_ok=True)
