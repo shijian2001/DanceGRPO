@@ -16,7 +16,7 @@ import datetime
 from concurrent import futures
 import time
 from absl import app, flags
-from fastvideo.datasets import SceneDataset
+from fastvideo.dataset.scene_dataset import SceneDataset
 from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration

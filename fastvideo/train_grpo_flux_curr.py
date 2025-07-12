@@ -12,8 +12,10 @@
 import argparse
 import math
 import os
+
+import diffusers
 from fastvideo.curr_sampler import CurrDistributedSampler
-from fastvideo.datasets import SceneDataset
+from fastvideo.dataset.scene_dataset import SceneDataset
 from fastvideo.utils.parallel_states import (
     initialize_sequence_parallel_state,
     destroy_sequence_parallel_group,
@@ -25,6 +27,8 @@ import time
 from torch.utils.data import DataLoader
 import torch
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+from diffusers import FluxPipeline
 
 from torch.utils.data.distributed import DistributedSampler
 from fastvideo.utils.dataset_utils import LengthGroupedSampler
@@ -248,7 +252,9 @@ def sample_reference_model(
     text_ids,
     reward_model,
     tokenizer,
-    caption,
+    prompt,
+    qa,
+    difficulty,
     preprocess_val,
 ):
     w, h, t = args.w, args.h, args.t
@@ -286,7 +292,7 @@ def sample_reference_model(
         batch_encoder_hidden_states = encoder_hidden_states[batch_idx]
         batch_pooled_prompt_embeds = pooled_prompt_embeds[batch_idx]
         batch_text_ids = text_ids[batch_idx]
-        batch_caption = [caption[i] for i in batch_idx]
+        batch_caption = [prompt[i] for i in batch_idx]
         if not args.init_same_noise:
             input_latents = torch.randn(
                 (len(batch_idx), IN_CHANNELS, latent_h, latent_w),  # （c,t,h,w)
@@ -335,11 +341,14 @@ def sample_reference_model(
                 text = tokenizer([batch_caption[0]]).to(device=device, non_blocking=True)
                 # Calculate the HPS
                 with torch.amp.autocast("cuda"):
-                    outputs = reward_model(image, text)
-                    image_features, text_features = outputs["image_features"], outputs["text_features"]
-                    logits_per_image = image_features @ text_features.T
-                    hps_score = torch.diagonal(logits_per_image)
-                all_rewards.append(hps_score)
+                    vqa_score = reward_model(
+                        image,
+                        [
+                            {"prompt": prompt_, "qa": qa_, "difficulty": difficulty_}
+                            for prompt_, qa_, difficulty_ in zip(prompt, qa, difficulty)
+                        ],
+                    )
+                all_rewards.append(vqa_score)
 
     all_latents = torch.cat(all_latents, dim=0)
     all_log_probs = torch.cat(all_log_probs, dim=0)
@@ -371,15 +380,14 @@ def train_one_step(
     noise_scheduler,
     max_grad_norm,
     preprocess_val,
+    flux_pipe,
 ):
     total_loss = 0.0
     optimizer.zero_grad()
-    (
-        encoder_hidden_states,
-        pooled_prompt_embeds,
-        text_ids,
-        caption,
-    ) = next(loader)
+    scenes = next(loader)
+    encoder_hidden_states, pooled_prompt_embeds, text_ids = flux_pipe.encode_prompt(
+        prompt=scenes["prompt"], prompt_2=scenes["prompt"]
+    )
     # device = latents.device
     if args.use_group:
 
@@ -392,12 +400,16 @@ def train_one_step(
         pooled_prompt_embeds = repeat_tensor(pooled_prompt_embeds)
         text_ids = repeat_tensor(text_ids)
 
-        if isinstance(caption, str):
-            caption = [caption] * args.num_generations
-        elif isinstance(caption, list):
-            caption = [item for item in caption for _ in range(args.num_generations)]
+        if isinstance(scenes["prompt"], str):
+            caption = [scenes["prompt"]] * args.num_generations
+            qa = [scenes["qa"]] * args.num_generations
+            difficulty = [scenes["difficulty"]] * args.num_generations
+        elif isinstance(scenes["prompt"], list):
+            caption = [item for item in scenes["prompt"] for _ in range(args.num_generations)]
+            qa = [item for item in scenes["qa"] for _ in range(args.num_generations)]
+            difficulty = [item for item in scenes["difficulty"] for _ in range(args.num_generations)]
         else:
-            raise ValueError(f"Unsupported caption type: {type(caption)}")
+            raise ValueError(f"Unsupported caption type: {type(scenes["prompt"])}")
 
     reward, all_latents, all_log_probs, sigma_schedule, all_image_ids = sample_reference_model(
         args,
@@ -410,6 +422,8 @@ def train_one_step(
         reward_model,
         tokenizer,
         caption,
+        qa,
+        difficulty,
         preprocess_val,
     )
     batch_size = all_latents.shape[0]
@@ -714,6 +728,7 @@ def main(args):
         args.sp_size,
         args.train_sp_batch_size,
     )
+    pipe = FluxPipeline.from_pretrained("./data/flux", torch_dtype=torch.bfloat16).to(device)
 
     step_times = deque(maxlen=100)
 
@@ -741,6 +756,7 @@ def main(args):
                 noise_scheduler,
                 args.max_grad_norm,
                 preprocess_val,
+                pipe,
             )
 
             step_time = time.time() - start_time
