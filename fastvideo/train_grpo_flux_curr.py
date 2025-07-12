@@ -329,26 +329,22 @@ def sample_reference_model(
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 latents = unpack_latents(latents, h, w, 8)
                 latents = (latents / 0.3611) + 0.1159
-                image = vae.decode(latents, return_dict=False)[0]
+                images = vae.decode(latents, return_dict=False)
+                image = images[0]
                 decoded_image = image_processor.postprocess(image)
         decoded_image[0].save(f"./images/flux_{rank}_{index}.png")
 
-        if args.use_hpsv2:
-            with torch.no_grad():
-                image_path = decoded_image[0]
-                image = preprocess_val(image_path).unsqueeze(0).to(device=device, non_blocking=True)
-                # Process the prompt
-                text = tokenizer([batch_caption[0]]).to(device=device, non_blocking=True)
-                # Calculate the HPS
-                with torch.amp.autocast("cuda"):
-                    vqa_score = reward_model(
-                        image,
-                        [
-                            {"prompt": prompt_, "qa": qa_, "difficulty": difficulty_}
-                            for prompt_, qa_, difficulty_ in zip(prompt, qa, difficulty)
-                        ],
-                    )
-                all_rewards.append(vqa_score)
+        with torch.no_grad():
+            # Process the prompt
+            with torch.amp.autocast("cuda"):
+                vqa_score = reward_model(
+                    images,
+                    [
+                        {"prompt": prompt_, "qa": qa_, "difficulty": difficulty_}
+                        for prompt_, qa_, difficulty_ in zip(prompt, qa, difficulty)
+                    ],
+                )
+            all_rewards.append(vqa_score)
 
     all_latents = torch.cat(all_latents, dim=0)
     all_log_probs = torch.cat(all_log_probs, dim=0)
