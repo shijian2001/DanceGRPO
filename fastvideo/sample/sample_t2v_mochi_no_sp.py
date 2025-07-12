@@ -1,4 +1,4 @@
-#This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
+# This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
 
 import argparse
 
@@ -16,14 +16,10 @@ def main(args):
     # do not invert
     scheduler = FlowMatchEulerDiscreteScheduler()
     if args.transformer_path is not None:
-        transformer = MochiTransformer3DModel.from_pretrained(
-            args.transformer_path)
+        transformer = MochiTransformer3DModel.from_pretrained(args.transformer_path)
     else:
-        transformer = MochiTransformer3DModel.from_pretrained(
-            args.model_path, subfolder="transformer/")
-    pipe = MochiPipeline.from_pretrained(args.model_path,
-                                         transformer=transformer,
-                                         scheduler=scheduler)
+        transformer = MochiTransformer3DModel.from_pretrained(args.model_path, subfolder="transformer/")
+    pipe = MochiPipeline.from_pretrained(args.model_path, transformer=transformer, scheduler=scheduler)
     pipe.enable_vae_tiling()
     # pipe.to("cuda:1")
     pipe.enable_model_cpu_offload()

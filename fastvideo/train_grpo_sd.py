@@ -1,6 +1,6 @@
 # Copyright (c) [2025] [FastVideo Team]
 # Copyright (c) [2025] [ByteDance Ltd. and/or its affiliates.]
-# SPDX-License-Identifier: [MIT License] 
+# SPDX-License-Identifier: [MIT License]
 #
 # This file has been modified by [ByteDance Ltd. and/or its affiliates.] in 2025.
 #
@@ -41,25 +41,26 @@ from safetensors.torch import save_file
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
+
 class PromptDataset(Dataset):
     def __init__(self, file_path):
-        with open(file_path, "r", encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             self.prompts = [line.strip() for line in f if line.strip()]
-            
+
     def __len__(self):
         return len(self.prompts)
-    
+
     def __getitem__(self, idx):
         return self.prompts[idx]
-    
+
 
 class SceneDataset(Dataset):
     def __init__(self, file_path):
         import json
-        
-        with open(file_path, "r", encoding='utf-8') as f:
+
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            
+
         # Flatten all scenes from different difficulty levels
         self.scenes = []
         for difficulty, scenes_list in data.items():
@@ -67,10 +68,10 @@ class SceneDataset(Dataset):
                 # Add difficulty info to each scene
                 scene["difficulty"] = difficulty
                 self.scenes.append(scene)
-            
+
     def __len__(self):
         return len(self.scenes)
-    
+
     def __getitem__(self, idx):
         scene = self.scenes[idx]
         return {
@@ -82,9 +83,9 @@ class SceneDataset(Dataset):
 
 def custom_collate_fn(batch):
     return {
-        'prompt': [item['prompt'] for item in batch],
-        'qa': [item['qa'] for item in batch],
-        'difficulty': [item['difficulty'] for item in batch],
+        "prompt": [item["prompt"] for item in batch],
+        "qa": [item["qa"] for item in batch],
+        "difficulty": [item["difficulty"] for item in batch],
     }
 
 
@@ -92,6 +93,7 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", "config/base.py", "Training configuration.")
 
 logger = get_logger(__name__)
+
 
 def main(_):
     # basic Accelerate and logging setup
@@ -107,9 +109,7 @@ def main(_):
         config.resume_from = os.path.normpath(os.path.expanduser(config.resume_from))
         if "checkpoint_" not in os.path.basename(config.resume_from):
             # get the most recent checkpoint in this directory
-            checkpoints = list(
-                filter(lambda x: "checkpoint_" in x, os.listdir(config.resume_from))
-            )
+            checkpoints = list(filter(lambda x: "checkpoint_" in x, os.listdir(config.resume_from)))
             if len(checkpoints) == 0:
                 raise ValueError(f"No checkpoints found in {config.resume_from}")
             config.resume_from = os.path.join(
@@ -118,7 +118,7 @@ def main(_):
             )
 
     # number of timesteps within each trajectory to train on
-    num_train_timesteps = int((config.sample.num_steps-1) * config.train.timestep_fraction)
+    num_train_timesteps = int((config.sample.num_steps - 1) * config.train.timestep_fraction)
 
     accelerator_config = ProjectConfiguration(
         project_dir=os.path.join(config.logdir, config.run_name),
@@ -133,8 +133,7 @@ def main(_):
         # we always accumulate gradients across timesteps; we want config.train.gradient_accumulation_steps to be the
         # number of *samples* we accumulate across, so we need to multiply by the number of training timesteps to get
         # the total number of optimizer steps to accumulate across.
-        gradient_accumulation_steps=config.train.gradient_accumulation_steps
-        * num_train_timesteps,
+        gradient_accumulation_steps=config.train.gradient_accumulation_steps * num_train_timesteps,
     )
     if accelerator.is_main_process:
         accelerator.init_trackers(
@@ -149,7 +148,7 @@ def main(_):
 
     # load scheduler, tokenizer and models.
     pipeline = StableDiffusionPipeline.from_pretrained(
-        #config.pretrained.model, revision=config.pretrained.revision
+        # config.pretrained.model, revision=config.pretrained.revision
         "./data/stable-diffusion-v1-4"
     )
     # freeze parameters of models to save more memory
@@ -187,25 +186,17 @@ def main(_):
         # Set correct lora layers
         lora_attn_procs = {}
         for name in pipeline.unet.attn_processors.keys():
-            cross_attention_dim = (
-                None
-                if name.endswith("attn1.processor")
-                else pipeline.unet.config.cross_attention_dim
-            )
+            cross_attention_dim = None if name.endswith("attn1.processor") else pipeline.unet.config.cross_attention_dim
             if name.startswith("mid_block"):
                 hidden_size = pipeline.unet.config.block_out_channels[-1]
             elif name.startswith("up_blocks"):
                 block_id = int(name[len("up_blocks.")])
-                hidden_size = list(reversed(pipeline.unet.config.block_out_channels))[
-                    block_id
-                ]
+                hidden_size = list(reversed(pipeline.unet.config.block_out_channels))[block_id]
             elif name.startswith("down_blocks"):
                 block_id = int(name[len("down_blocks.")])
                 hidden_size = pipeline.unet.config.block_out_channels[block_id]
 
-            lora_attn_procs[name] = LoRAAttnProcessor(
-                hidden_size=hidden_size, cross_attention_dim=cross_attention_dim
-            )
+            lora_attn_procs[name] = LoRAAttnProcessor(hidden_size=hidden_size, cross_attention_dim=cross_attention_dim)
         pipeline.unet.set_attn_processor(lora_attn_procs)
 
         # this is a hack to synchronize gradients properly. the module that registers the parameters we care about (in
@@ -241,21 +232,17 @@ def main(_):
                 subfolder="unet",
             )
             tmp_unet.load_attn_procs(input_dir)
-            models[0].load_state_dict(
-                AttnProcsLayers(tmp_unet.attn_processors).state_dict()
-            )
+            models[0].load_state_dict(AttnProcsLayers(tmp_unet.attn_processors).state_dict())
             del tmp_unet
         elif not config.use_lora and isinstance(models[0], UNet2DConditionModel):
-            load_model = UNet2DConditionModel.from_pretrained(
-                input_dir, subfolder="unet"
-            )
+            load_model = UNet2DConditionModel.from_pretrained(input_dir, subfolder="unet")
             models[0].register_to_config(**load_model.config)
             models[0].load_state_dict(load_model.state_dict())
             del load_model
         else:
             raise ValueError(f"Unknown model type {type(models[0])}")
         models.pop()  # ensures that accelerate doesn't try to handle loading of the model
-    
+
     def gather_tensor(tensor):
         if not dist.is_initialized():
             return tensor
@@ -263,7 +250,6 @@ def main(_):
         gathered_tensors = [torch.zeros_like(tensor) for _ in range(world_size)]
         dist.all_gather(gathered_tensors, tensor)
         return torch.cat(gathered_tensors, dim=0)
-
 
     accelerator.register_save_state_pre_hook(save_model_hook)
     accelerator.register_load_state_pre_hook(load_model_hook)
@@ -295,12 +281,12 @@ def main(_):
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # prepare prompt and reward fn
-  
-  
+
     from models.reward import FineVQAReward
-    reward_model = FineVQAReward(model='clip-flant5-xxl')
-    
-    #prompt_fn = getattr(ddpo_pytorch.prompts, config.prompt_fn)
+
+    reward_model = FineVQAReward(model="clip-flant5-xxl")
+
+    # prompt_fn = getattr(ddpo_pytorch.prompts, config.prompt_fn)
 
     # generate negative prompt embeddings
     neg_prompt_embed = pipeline.text_encoder(
@@ -328,32 +314,20 @@ def main(_):
     executor = futures.ThreadPoolExecutor(max_workers=2)
 
     # Train!
-    samples_per_epoch = (
-        config.sample.batch_size
-        * accelerator.num_processes
-        * config.num_generations
-    )
+    samples_per_epoch = config.sample.batch_size * accelerator.num_processes * config.num_generations
     total_train_batch_size = (
-        config.train.batch_size
-        * accelerator.num_processes
-        * config.train.gradient_accumulation_steps
+        config.train.batch_size * accelerator.num_processes * config.train.gradient_accumulation_steps
     )
 
     logger.info("***** Running training *****")
     logger.info(f"  Num Epochs = {config.num_epochs}")
     logger.info(f"  Sample batch size per device = {config.sample.batch_size}")
     logger.info(f"  Train batch size per device = {config.train.batch_size}")
-    logger.info(
-        f"  Gradient Accumulation steps = {config.train.gradient_accumulation_steps}"
-    )
+    logger.info(f"  Gradient Accumulation steps = {config.train.gradient_accumulation_steps}")
     logger.info("")
     logger.info(f"  Total number of samples per epoch = {samples_per_epoch}")
-    logger.info(
-        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size}"
-    )
-    logger.info(
-        f"  Number of gradient updates per inner epoch = {samples_per_epoch // total_train_batch_size}"
-    )
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size}")
+    logger.info(f"  Number of gradient updates per inner epoch = {samples_per_epoch // total_train_batch_size}")
     logger.info(f"  Number of inner epochs = {config.train.num_inner_epochs}")
     import torch.nn.functional as F
 
@@ -361,25 +335,23 @@ def main(_):
     assert config.sample.batch_size % config.train.batch_size == 0
     assert samples_per_epoch % total_train_batch_size == 0
 
-    dataset = SceneDataset('./data/curr_rft_data_20250709.json')
-    
-    
+    dataset = SceneDataset("./data/curr_rft_data_20250709.json")
+
     sampler = DistributedSampler(
         dataset,
         num_replicas=torch.distributed.get_world_size(),
         rank=torch.distributed.get_rank(),
-        seed = 123543,
-        shuffle=True  
+        seed=123543,
+        shuffle=True,
     )
-    
-    
+
     loader = DataLoader(
         dataset,
         batch_size=config.sample.batch_size,
         sampler=sampler,
-        pin_memory=True,  
+        pin_memory=True,
         drop_last=True,
-        collate_fn=custom_collate_fn   
+        collate_fn=custom_collate_fn,
     )
 
     if config.resume_from:
@@ -389,6 +361,7 @@ def main(_):
     else:
         first_epoch = 0
     import torch.distributed as dist
+
     global_step = 0
     for epoch, scenes in enumerate(loader):
         #################### SAMPLING ####################
@@ -401,12 +374,8 @@ def main(_):
         expanded_prompts = []
         expanded_scenes = []
 
-        for prompt, qa, difficulty in zip(scenes['prompt'], scenes['qa'], scenes['difficulty']):
-            scene = {
-                'prompt': prompt,
-                'qa': qa,
-                'difficulty': difficulty
-            }
+        for prompt, qa, difficulty in zip(scenes["prompt"], scenes["qa"], scenes["difficulty"]):
+            scene = {"prompt": prompt, "qa": qa, "difficulty": difficulty}
             expanded_prompts.extend([prompt] * config.num_generations)
             expanded_scenes.extend([scene] * config.num_generations)
 
@@ -417,27 +386,27 @@ def main(_):
 
         ###for the sake of convenience, we use the same latents for all prompts in a batch.
         global_input_latents = torch.randn(
-                    (1, 4, 64, 64),
-                    device=accelerator.device,
-                    dtype=torch.bfloat16,
-                )
+            (1, 4, 64, 64),
+            device=accelerator.device,
+            dtype=torch.bfloat16,
+        )
 
         batch_size = config.train.batch_size
-        current_batch = {}  
+        current_batch = {}
         for i in range(0, len(expanded_prompts), batch_size):
-            current_batch['expanded_prompts'] = expanded_prompts[i:i+batch_size]
-            current_batch['expanded_scenes'] = expanded_scenes[i:i+batch_size]
-            
+            current_batch["expanded_prompts"] = expanded_prompts[i : i + batch_size]
+            current_batch["expanded_scenes"] = expanded_scenes[i : i + batch_size]
+
             prompt_ids = pipeline.tokenizer(
-                current_batch['expanded_prompts'],
+                current_batch["expanded_prompts"],
                 return_tensors="pt",
                 padding="max_length",
                 truncation=True,
-                max_length=pipeline.tokenizer.model_max_length
+                max_length=pipeline.tokenizer.model_max_length,
             ).input_ids.to(accelerator.device)
             prompt_embeds = pipeline.text_encoder(prompt_ids)[0]
-            if i%config.num_generations == 0:
-                input_latents = global_input_latents.repeat(batch_size,1,1,1).clone()
+            if i % config.num_generations == 0:
+                input_latents = global_input_latents.repeat(batch_size, 1, 1, 1).clone()
 
             with torch.no_grad():
                 with autocast():
@@ -449,30 +418,25 @@ def main(_):
                         guidance_scale=config.sample.guidance_scale,
                         eta=config.sample.eta,
                         output_type="pt",
-                        latents=input_latents
+                        latents=input_latents,
                     )
             rewards = []
             tuwen_rewards = []
             images_list = []
 
             for j, image in enumerate(images):
-                pil = Image.fromarray(
-                    (image.to(torch.float32).cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
-                )
+                pil = Image.fromarray((image.to(torch.float32).cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8))
                 pil = pil.resize((512, 512))
                 image_path = os.path.join("./images_same_20250709", f"image-{i}-{j}-rank-{dist.get_rank()}.jpg")
                 pil.save(image_path)
                 images_list.append(image_path)
 
-
-            vqa_scores = reward_model(images_list, current_batch['expanded_scenes'])
+            vqa_scores = reward_model(images_list, current_batch["expanded_scenes"])
             rewards.append(vqa_scores)
 
-
-            latents = torch.stack(latents, dim=1).detach()     # (4, num_steps+1, ...)
-            log_probs = torch.stack(log_probs, dim=1).detach()   # (4, num_steps, ...)
-            rewards = torch.cat(rewards, dim=0)  
-            
+            latents = torch.stack(latents, dim=1).detach()  # (4, num_steps+1, ...)
+            log_probs = torch.stack(log_probs, dim=1).detach()  # (4, num_steps, ...)
+            rewards = torch.cat(rewards, dim=0)
 
             all_latents.append(latents)
             all_log_probs.append(log_probs)
@@ -481,32 +445,25 @@ def main(_):
 
             torch.cuda.empty_cache()
 
-
         all_latents = torch.cat(all_latents, dim=0)
         all_log_probs = torch.cat(all_log_probs, dim=0)
         all_rewards = torch.cat(all_rewards, dim=0).to(torch.float32)
         all_prompts_embed = torch.cat(all_prompts_embed, dim=0)
-        timesteps = pipeline.scheduler.timesteps.repeat(
-            config.sample.batch_size*config.num_generations, 1
-        ) 
+        timesteps = pipeline.scheduler.timesteps.repeat(config.sample.batch_size * config.num_generations, 1)
 
         # compute rewards asynchronously
-        #rewards = executor.submit(reward_fn, images, prompts, prompt_metadata)
+        # rewards = executor.submit(reward_fn, images, prompts, prompt_metadata)
         # yield to to make sure reward computation starts
         time.sleep(0)
 
-        samples={
-                "prompt_embeds": all_prompts_embed,
-                "timesteps": timesteps[:, :-1],
-                "latents": all_latents[
-                    :, :-1
-                ][:, :-1],  # each entry is the latent before timestep t
-                "next_latents": all_latents[
-                    :, 1:
-                ][:, :-1],  # each entry is the latent after timestep t
-                "log_probs": all_log_probs[:, :-1],
-                "rewards": all_rewards,
-            }
+        samples = {
+            "prompt_embeds": all_prompts_embed,
+            "timesteps": timesteps[:, :-1],
+            "latents": all_latents[:, :-1][:, :-1],  # each entry is the latent before timestep t
+            "next_latents": all_latents[:, 1:][:, :-1],  # each entry is the latent after timestep t
+            "log_probs": all_log_probs[:, :-1],
+            "rewards": all_rewards,
+        }
 
         # gather rewards across processes
         all_rewards_world = gather_tensor(all_rewards)
@@ -522,13 +479,13 @@ def main(_):
             step=global_step,
         )
 
-        if dist.get_rank()==0:
+        if dist.get_rank() == 0:
             print("gathered_reward", all_rewards_world)
-            with open('./reward_shuffle_20250711.txt', 'a') as f:  # 'a'模式表示追加到文件末尾
+            with open("./reward_shuffle_20250711.txt", "a") as f:  # 'a'模式表示追加到文件末尾
                 f.write(f"{all_rewards_world.mean().item()}\n")
 
-        #samples = {k: v.cuda() for k, v in samples.items()}  # 假设原始数据在GPU
-        #samples = process_samples(samples, config)
+        # samples = {k: v.cuda() for k, v in samples.items()}  # 假设原始数据在GPU
+        # samples = process_samples(samples, config)
         n = len(samples["rewards"]) // (config.num_generations)
         advantages = torch.zeros_like(samples["rewards"])
 
@@ -542,23 +499,19 @@ def main(_):
         samples["advantages"] = advantages
 
         samples["final_advantages"] = advantages
-        
 
         total_batch_size, num_timesteps = samples["timesteps"].shape
-        #assert (
+        # assert (
         #    total_batch_size
         #    == config.sample.batch_size * config.sample.num_batches_per_epoch
-        #)
-        #assert num_timesteps == config.sample.num_steps
+        # )
+        # assert num_timesteps == config.sample.num_steps
 
         #################### TRAINING ####################
         for inner_epoch in range(config.train.num_inner_epochs):
             # shuffle along time dimension independently for each sample
             perms = torch.stack(
-                [
-                    torch.randperm(num_timesteps, device=accelerator.device)
-                    for _ in range(total_batch_size)
-                ]
+                [torch.randperm(num_timesteps, device=accelerator.device) for _ in range(total_batch_size)]
             )
             for key in ["timesteps", "latents", "next_latents", "log_probs"]:
                 samples[key] = samples[key][
@@ -567,15 +520,10 @@ def main(_):
                 ]
 
             # rebatch for training
-            samples_batched = {
-                k: v.reshape(-1, config.train.batch_size, *v.shape[1:])
-                for k, v in samples.items()
-            }
+            samples_batched = {k: v.reshape(-1, config.train.batch_size, *v.shape[1:]) for k, v in samples.items()}
 
             # dict of lists -> list of dicts for easier iteration
-            samples_batched = [
-                dict(zip(samples_batched, x)) for x in zip(*samples_batched.values())
-            ]
+            samples_batched = [dict(zip(samples_batched, x)) for x in zip(*samples_batched.values())]
 
             # train
             pipeline.unet.train()
@@ -588,9 +536,7 @@ def main(_):
             ):
                 if config.train.cfg:
                     # concat negative prompts to sample prompts to avoid two forward passes
-                    embeds = torch.cat(
-                        [train_neg_prompt_embeds, sample["prompt_embeds"]]
-                    )
+                    embeds = torch.cat([train_neg_prompt_embeds, sample["prompt_embeds"]])
                 else:
                     embeds = sample["prompt_embeds"]
 
@@ -610,10 +556,8 @@ def main(_):
                                     embeds,
                                 ).sample
                                 noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                                noise_pred = (
-                                    noise_pred_uncond
-                                    + config.sample.guidance_scale
-                                    * (noise_pred_text - noise_pred_uncond)
+                                noise_pred = noise_pred_uncond + config.sample.guidance_scale * (
+                                    noise_pred_text - noise_pred_uncond
                                 )
                             else:
                                 noise_pred = unet(
@@ -650,25 +594,14 @@ def main(_):
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
                         # estimator, but most existing code uses this so...
                         # http://joschu.net/blog/kl-approx.html
-                        info["approx_kl"].append(
-                            0.5
-                            * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2)
-                        )
-                        info["clipfrac"].append(
-                            torch.mean(
-                                (
-                                    torch.abs(ratio - 1.0) > config.train.clip_range
-                                ).float()
-                            )
-                        )
+                        info["approx_kl"].append(0.5 * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2))
+                        info["clipfrac"].append(torch.mean((torch.abs(ratio - 1.0) > config.train.clip_range).float()))
                         info["loss"].append(loss)
 
                         # backward pass
                         accelerator.backward(loss)
                         if accelerator.sync_gradients:
-                            accelerator.clip_grad_norm_(
-                                unet.parameters(), config.train.max_grad_norm
-                            )
+                            accelerator.clip_grad_norm_(unet.parameters(), config.train.max_grad_norm)
                         optimizer.step()
                         optimizer.zero_grad()
 
@@ -684,7 +617,7 @@ def main(_):
                         accelerator.log(info, step=global_step)
                         global_step += 1
                         info = defaultdict(list)
-                if dist.get_rank()%8==0:
+                if dist.get_rank() % 8 == 0:
                     print("reward", sample["rewards"])
                     print("ratio", ratio)
                     print("final advantage", advantages)
@@ -692,12 +625,11 @@ def main(_):
                     print("final loss", loss)
                 dist.barrier()
 
-
             # make sure we did an optimization step at the end of the inner epoch
             assert accelerator.sync_gradients
 
-        if epoch != 0 and epoch % config.save_freq == 0: # 
-        #if epoch % config.save_freq == 0: 
+        if epoch != 0 and epoch % config.save_freq == 0:  #
+            # if epoch % config.save_freq == 0:
             if accelerator.is_main_process:
                 base_checkpoint_dir = "/mnt/tidal-alsh01/dataset/video_agent_data/ckpt/curr/20250711/my_checkpoints"
                 # Create a unique directory for this specific checkpoint

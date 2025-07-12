@@ -36,6 +36,7 @@ def compressibility():
 
     return config
 
+
 def hps():
     config = compressibility()
     config.num_epochs = 300

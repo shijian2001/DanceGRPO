@@ -1,4 +1,4 @@
-#This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
+# This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
 
 from typing import Any, Tuple
 
@@ -14,10 +14,7 @@ def broadcast(input_: torch.Tensor):
     dist.broadcast(input_, src=src, group=nccl_info.group)
 
 
-def _all_to_all_4D(input: torch.tensor,
-                   scatter_idx: int = 2,
-                   gather_idx: int = 1,
-                   group=None) -> torch.tensor:
+def _all_to_all_4D(input: torch.tensor, scatter_idx: int = 2, gather_idx: int = 1, group=None) -> torch.tensor:
     """
     all-to-all for QKV
 
@@ -30,9 +27,7 @@ def _all_to_all_4D(input: torch.tensor,
     Returns:
         torch.tensor: resharded tensor (bs, seqlen/P, hc, hs)
     """
-    assert (
-        input.dim() == 4
-    ), f"input must be 4D tensor, got {input.dim()} and shape {input.shape}"
+    assert input.dim() == 4, f"input must be 4D tensor, got {input.dim()} and shape {input.shape}"
 
     seq_world_size = dist.get_world_size(group)
 
@@ -44,8 +39,7 @@ def _all_to_all_4D(input: torch.tensor,
 
         # transpose groups of heads with the seq-len parallel dimension, so that we can scatter them!
         # (bs, seqlen/P, hc, hs) -reshape-> (bs, seq_len/P, P, hc/P, hs) -transpose(0,2)-> (P, seq_len/P, bs, hc/P, hs)
-        input_t = (input.reshape(bs, shard_seqlen, seq_world_size, shard_hc,
-                                 hs).transpose(0, 2).contiguous())
+        input_t = input.reshape(bs, shard_seqlen, seq_world_size, shard_hc, hs).transpose(0, 2).contiguous()
 
         output = torch.empty_like(input_t)
         # https://pytorch.org/docs/stable/distributed.html#torch.distributed.all_to_all_single
@@ -59,8 +53,7 @@ def _all_to_all_4D(input: torch.tensor,
         output = output.reshape(seqlen, bs, shard_hc, hs)
 
         # (seq_len, bs, hc/P, hs) -reshape-> (bs, seq_len, hc/P, hs)
-        output = output.transpose(0, 1).contiguous().reshape(
-            bs, seqlen, shard_hc, hs)
+        output = output.transpose(0, 1).contiguous().reshape(bs, seqlen, shard_hc, hs)
 
         return output
 
@@ -73,10 +66,13 @@ def _all_to_all_4D(input: torch.tensor,
 
         # transpose groups of heads with the seq-len parallel dimension, so that we can scatter them!
         # (bs, seqlen, hc/P, hs) -reshape-> (bs, P, seq_len/P, hc/P, hs) -transpose(0, 3)-> (hc/P, P, seqlen/P, bs, hs) -transpose(0, 1) -> (P, hc/P, seqlen/P, bs, hs)
-        input_t = (input.reshape(
-            bs, seq_world_size, shard_seqlen, shard_hc,
-            hs).transpose(0, 3).transpose(0, 1).contiguous().reshape(
-                seq_world_size, shard_hc, shard_seqlen, bs, hs))
+        input_t = (
+            input.reshape(bs, seq_world_size, shard_seqlen, shard_hc, hs)
+            .transpose(0, 3)
+            .transpose(0, 1)
+            .contiguous()
+            .reshape(seq_world_size, shard_hc, shard_seqlen, bs, hs)
+        )
 
         output = torch.empty_like(input_t)
         # https://pytorch.org/docs/stable/distributed.html#torch.distributed.all_to_all_single
@@ -91,13 +87,11 @@ def _all_to_all_4D(input: torch.tensor,
         output = output.reshape(hc, shard_seqlen, bs, hs)
 
         # (hc, seqlen/N, bs, hs) -tranpose(0,2)-> (bs, seqlen/N, hc, hs)
-        output = output.transpose(0, 2).contiguous().reshape(
-            bs, shard_seqlen, hc, hs)
+        output = output.transpose(0, 2).contiguous().reshape(bs, shard_seqlen, hc, hs)
 
         return output
     else:
-        raise RuntimeError(
-            "scatter_idx must be 1 or 2 and gather_idx must be 1 or 2")
+        raise RuntimeError("scatter_idx must be 1 or 2 and gather_idx must be 1 or 2")
 
 
 class SeqAllToAll4D(torch.autograd.Function):
@@ -117,12 +111,10 @@ class SeqAllToAll4D(torch.autograd.Function):
         return _all_to_all_4D(input, scatter_idx, gather_idx, group=group)
 
     @staticmethod
-    def backward(ctx: Any,
-                 *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
+    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor, None, None]:
         return (
             None,
-            SeqAllToAll4D.apply(ctx.group, *grad_output, ctx.gather_idx,
-                                ctx.scatter_idx),
+            SeqAllToAll4D.apply(ctx.group, *grad_output, ctx.gather_idx, ctx.scatter_idx),
             None,
             None,
         )
@@ -133,8 +125,7 @@ def all_to_all_4D(
     scatter_dim: int = 2,
     gather_dim: int = 1,
 ):
-    return SeqAllToAll4D.apply(nccl_info.group, input_, scatter_dim,
-                               gather_dim)
+    return SeqAllToAll4D.apply(nccl_info.group, input_, scatter_dim, gather_dim)
 
 
 def _all_to_all(
@@ -144,10 +135,7 @@ def _all_to_all(
     scatter_dim: int,
     gather_dim: int,
 ):
-    input_list = [
-        t.contiguous()
-        for t in torch.tensor_split(input_, world_size, scatter_dim)
-    ]
+    input_list = [t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)]
     output_list = [torch.empty_like(input_list[0]) for _ in range(world_size)]
     dist.all_to_all(output_list, input_list, group=group)
     return torch.cat(output_list, dim=gather_dim).contiguous()
@@ -169,8 +157,7 @@ class _AllToAll(torch.autograd.Function):
         ctx.scatter_dim = scatter_dim
         ctx.gather_dim = gather_dim
         ctx.world_size = dist.get_world_size(process_group)
-        output = _all_to_all(input_, ctx.world_size, process_group,
-                             scatter_dim, gather_dim)
+        output = _all_to_all(input_, ctx.world_size, process_group, scatter_dim, gather_dim)
         return output
 
     @staticmethod
@@ -250,9 +237,7 @@ def all_gather(input_: torch.Tensor, dim: int = 1):
     return _AllGather.apply(input_, dim)
 
 
-def prepare_sequence_parallel_data(
-    encoder_hidden_states, encoder_attention_mask, caption
-):
+def prepare_sequence_parallel_data(encoder_hidden_states, encoder_attention_mask, caption):
     if nccl_info.sp_size == 1:
         return (
             encoder_hidden_states,
@@ -260,37 +245,27 @@ def prepare_sequence_parallel_data(
             caption,
         )
 
-    def prepare(
-        encoder_hidden_states, encoder_attention_mask, caption
-    ):
-        #hidden_states = all_to_all(hidden_states, scatter_dim=2, gather_dim=0)
-        encoder_hidden_states = all_to_all(
-            encoder_hidden_states, scatter_dim=1, gather_dim=0
-        )
-        #attention_mask = all_to_all(attention_mask, scatter_dim=1, gather_dim=0)
-        encoder_attention_mask = all_to_all(
-            encoder_attention_mask, scatter_dim=1, gather_dim=0
-        )
-        return (
-            encoder_hidden_states,
-            encoder_attention_mask,
-            caption
-        )
+    def prepare(encoder_hidden_states, encoder_attention_mask, caption):
+        # hidden_states = all_to_all(hidden_states, scatter_dim=2, gather_dim=0)
+        encoder_hidden_states = all_to_all(encoder_hidden_states, scatter_dim=1, gather_dim=0)
+        # attention_mask = all_to_all(attention_mask, scatter_dim=1, gather_dim=0)
+        encoder_attention_mask = all_to_all(encoder_attention_mask, scatter_dim=1, gather_dim=0)
+        return (encoder_hidden_states, encoder_attention_mask, caption)
 
     sp_size = nccl_info.sp_size
-    #frame = hidden_states.shape[2]
-    #assert frame % sp_size == 0, "frame should be a multiple of sp_size"
+    # frame = hidden_states.shape[2]
+    # assert frame % sp_size == 0, "frame should be a multiple of sp_size"
 
     (
-        #hidden_states,
+        # hidden_states,
         encoder_hidden_states,
-        #attention_mask,
+        # attention_mask,
         encoder_attention_mask,
         caption,
     ) = prepare(
-        #hidden_states,
+        # hidden_states,
         encoder_hidden_states.repeat(1, sp_size, 1),
-        #attention_mask.repeat(1, sp_size, 1, 1),
+        # attention_mask.repeat(1, sp_size, 1, 1),
         encoder_attention_mask.repeat(1, sp_size),
         caption,
     )
@@ -298,24 +273,20 @@ def prepare_sequence_parallel_data(
     return encoder_hidden_states, encoder_attention_mask, caption
 
 
-def sp_parallel_dataloader_wrapper(
-    dataloader, device, train_batch_size, sp_size, train_sp_batch_size
-):
+def sp_parallel_dataloader_wrapper(dataloader, device, train_batch_size, sp_size, train_sp_batch_size):
     while True:
         for data_item in dataloader:
             cond, cond_mask, caption = data_item
-            #latents = latents.to(device)
+            # latents = latents.to(device)
             cond = cond.to(device)
-            #attn_mask = attn_mask.to(device)
+            # attn_mask = attn_mask.to(device)
             cond_mask = cond_mask.to(device)
-            #frame = latents.shape[2]
+            # frame = latents.shape[2]
             frame = 19
             if frame == 1:
                 yield cond, cond_mask, caption
             else:
-                cond, cond_mask, caption = prepare_sequence_parallel_data(
-                    cond, cond_mask, caption
-                )
+                cond, cond_mask, caption = prepare_sequence_parallel_data(cond, cond_mask, caption)
                 assert (
                     train_batch_size * sp_size >= train_sp_batch_size
                 ), "train_batch_size * sp_size should be greater than train_sp_batch_size"
@@ -323,13 +294,12 @@ def sp_parallel_dataloader_wrapper(
                     st_idx = iter * train_sp_batch_size
                     ed_idx = (iter + 1) * train_sp_batch_size
                     encoder_hidden_states = cond[st_idx:ed_idx]
-                    #attention_mask = attn_mask[st_idx:ed_idx]
+                    # attention_mask = attn_mask[st_idx:ed_idx]
                     encoder_attention_mask = cond_mask[st_idx:ed_idx]
                     yield (
-                        #latents[st_idx:ed_idx],
+                        # latents[st_idx:ed_idx],
                         encoder_hidden_states,
-                        #attention_mask,
+                        # attention_mask,
                         encoder_attention_mask,
-                        caption
+                        caption,
                     )
-

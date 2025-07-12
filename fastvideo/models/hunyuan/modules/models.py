@@ -6,8 +6,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models import ModelMixin
 from einops import rearrange
 
-from fastvideo.models.hunyuan.modules.posemb_layers import \
-    get_nd_rotary_pos_embed
+from fastvideo.models.hunyuan.modules.posemb_layers import get_nd_rotary_pos_embed
 from fastvideo.utils.parallel_states import nccl_info
 
 from .activation_layers import get_activation_layer
@@ -53,31 +52,19 @@ class MMDoubleStreamBlock(nn.Module):
             act_layer=get_activation_layer("silu"),
             **factory_kwargs,
         )
-        self.img_norm1 = nn.LayerNorm(hidden_size,
-                                      elementwise_affine=False,
-                                      eps=1e-6,
-                                      **factory_kwargs)
+        self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
-        self.img_attn_qkv = nn.Linear(hidden_size,
-                                      hidden_size * 3,
-                                      bias=qkv_bias,
-                                      **factory_kwargs)
+        self.img_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
         qk_norm_layer = get_norm_layer(qk_norm_type)
-        self.img_attn_q_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                                if qk_norm else nn.Identity())
-        self.img_attn_k_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                                if qk_norm else nn.Identity())
-        self.img_attn_proj = nn.Linear(hidden_size,
-                                       hidden_size,
-                                       bias=qkv_bias,
-                                       **factory_kwargs)
+        self.img_attn_q_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
+        self.img_attn_k_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
+        self.img_attn_proj = nn.Linear(hidden_size, hidden_size, bias=qkv_bias, **factory_kwargs)
 
-        self.img_norm2 = nn.LayerNorm(hidden_size,
-                                      elementwise_affine=False,
-                                      eps=1e-6,
-                                      **factory_kwargs)
+        self.img_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
         self.img_mlp = MLP(
             hidden_size,
             mlp_hidden_dim,
@@ -92,30 +79,18 @@ class MMDoubleStreamBlock(nn.Module):
             act_layer=get_activation_layer("silu"),
             **factory_kwargs,
         )
-        self.txt_norm1 = nn.LayerNorm(hidden_size,
-                                      elementwise_affine=False,
-                                      eps=1e-6,
-                                      **factory_kwargs)
+        self.txt_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
-        self.txt_attn_qkv = nn.Linear(hidden_size,
-                                      hidden_size * 3,
-                                      bias=qkv_bias,
-                                      **factory_kwargs)
-        self.txt_attn_q_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                                if qk_norm else nn.Identity())
-        self.txt_attn_k_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                                if qk_norm else nn.Identity())
-        self.txt_attn_proj = nn.Linear(hidden_size,
-                                       hidden_size,
-                                       bias=qkv_bias,
-                                       **factory_kwargs)
+        self.txt_attn_qkv = nn.Linear(hidden_size, hidden_size * 3, bias=qkv_bias, **factory_kwargs)
+        self.txt_attn_q_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
+        self.txt_attn_k_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
+        self.txt_attn_proj = nn.Linear(hidden_size, hidden_size, bias=qkv_bias, **factory_kwargs)
 
-        self.txt_norm2 = nn.LayerNorm(hidden_size,
-                                      elementwise_affine=False,
-                                      eps=1e-6,
-                                      **factory_kwargs)
+        self.txt_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
         self.txt_mlp = MLP(
             hidden_size,
             mlp_hidden_dim,
@@ -146,7 +121,9 @@ class MMDoubleStreamBlock(nn.Module):
             img_mod2_shift,
             img_mod2_scale,
             img_mod2_gate,
-        ) = self.img_mod(vec).chunk(6, dim=-1)
+        ) = self.img_mod(
+            vec
+        ).chunk(6, dim=-1)
         (
             txt_mod1_shift,
             txt_mod1_scale,
@@ -154,18 +131,15 @@ class MMDoubleStreamBlock(nn.Module):
             txt_mod2_shift,
             txt_mod2_scale,
             txt_mod2_gate,
-        ) = self.txt_mod(vec).chunk(6, dim=-1)
+        ) = self.txt_mod(
+            vec
+        ).chunk(6, dim=-1)
 
         # Prepare image for attention.
         img_modulated = self.img_norm1(img)
-        img_modulated = modulate(img_modulated,
-                                 shift=img_mod1_shift,
-                                 scale=img_mod1_scale)
+        img_modulated = modulate(img_modulated, shift=img_mod1_shift, scale=img_mod1_scale)
         img_qkv = self.img_attn_qkv(img_modulated)
-        img_q, img_k, img_v = rearrange(img_qkv,
-                                        "B L (K H D) -> K B L H D",
-                                        K=3,
-                                        H=self.heads_num)
+        img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B L H D", K=3, H=self.heads_num)
         # Apply QK-Norm if needed
         img_q = self.img_attn_q_norm(img_q).to(img_v)
         img_k = self.img_attn_k_norm(img_k).to(img_v)
@@ -175,19 +149,14 @@ class MMDoubleStreamBlock(nn.Module):
 
             def shrink_head(encoder_state, dim):
                 local_heads = encoder_state.shape[dim] // nccl_info.sp_size
-                return encoder_state.narrow(
-                    dim, nccl_info.rank_within_group * local_heads,
-                    local_heads)
+                return encoder_state.narrow(dim, nccl_info.rank_within_group * local_heads, local_heads)
 
             freqs_cis = (
                 shrink_head(freqs_cis[0], dim=0),
                 shrink_head(freqs_cis[1], dim=0),
             )
 
-            img_qq, img_kk = apply_rotary_emb(img_q,
-                                              img_k,
-                                              freqs_cis,
-                                              head_first=False)
+            img_qq, img_kk = apply_rotary_emb(img_q, img_k, freqs_cis, head_first=False)
             assert (
                 img_qq.shape == img_q.shape and img_kk.shape == img_k.shape
             ), f"img_kk: {img_qq.shape}, img_q: {img_q.shape}, img_kk: {img_kk.shape}, img_k: {img_k.shape}"
@@ -195,14 +164,9 @@ class MMDoubleStreamBlock(nn.Module):
 
         # Prepare txt for attention.
         txt_modulated = self.txt_norm1(txt)
-        txt_modulated = modulate(txt_modulated,
-                                 shift=txt_mod1_shift,
-                                 scale=txt_mod1_scale)
+        txt_modulated = modulate(txt_modulated, shift=txt_mod1_shift, scale=txt_mod1_scale)
         txt_qkv = self.txt_attn_qkv(txt_modulated)
-        txt_q, txt_k, txt_v = rearrange(txt_qkv,
-                                        "B L (K H D) -> K B L H D",
-                                        K=3,
-                                        H=self.heads_num)
+        txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B L H D", K=3, H=self.heads_num)
         # Apply QK-Norm if needed.
         txt_q = self.txt_attn_q_norm(txt_q).to(txt_v)
         txt_k = self.txt_attn_k_norm(txt_k).to(txt_v)
@@ -218,27 +182,19 @@ class MMDoubleStreamBlock(nn.Module):
 
         # attention computation end
 
-        img_attn, txt_attn = attn[:, :img.shape[1]], attn[:, img.shape[1]:]
+        img_attn, txt_attn = attn[:, : img.shape[1]], attn[:, img.shape[1] :]
 
         # Calculate the img blocks.
-        img = img + apply_gate(self.img_attn_proj(img_attn),
-                               gate=img_mod1_gate)
+        img = img + apply_gate(self.img_attn_proj(img_attn), gate=img_mod1_gate)
         img = img + apply_gate(
-            self.img_mlp(
-                modulate(self.img_norm2(img),
-                         shift=img_mod2_shift,
-                         scale=img_mod2_scale)),
+            self.img_mlp(modulate(self.img_norm2(img), shift=img_mod2_shift, scale=img_mod2_scale)),
             gate=img_mod2_gate,
         )
 
         # Calculate the txt blocks.
-        txt = txt + apply_gate(self.txt_attn_proj(txt_attn),
-                               gate=txt_mod1_gate)
+        txt = txt + apply_gate(self.txt_attn_proj(txt_attn), gate=txt_mod1_gate)
         txt = txt + apply_gate(
-            self.txt_mlp(
-                modulate(self.txt_norm2(txt),
-                         shift=txt_mod2_shift,
-                         scale=txt_mod2_scale)),
+            self.txt_mlp(modulate(self.txt_norm2(txt), shift=txt_mod2_shift, scale=txt_mod2_scale)),
             gate=txt_mod2_gate,
         )
 
@@ -277,24 +233,19 @@ class MMSingleStreamBlock(nn.Module):
         self.scale = qk_scale or head_dim**-0.5
 
         # qkv and mlp_in
-        self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim,
-                                 **factory_kwargs)
+        self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_hidden_dim, **factory_kwargs)
         # proj and mlp_out
-        self.linear2 = nn.Linear(hidden_size + mlp_hidden_dim, hidden_size,
-                                 **factory_kwargs)
+        self.linear2 = nn.Linear(hidden_size + mlp_hidden_dim, hidden_size, **factory_kwargs)
 
         qk_norm_layer = get_norm_layer(qk_norm_type)
-        self.q_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                       if qk_norm else nn.Identity())
-        self.k_norm = (qk_norm_layer(
-            head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs)
-                       if qk_norm else nn.Identity())
+        self.q_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
+        self.k_norm = (
+            qk_norm_layer(head_dim, elementwise_affine=True, eps=1e-6, **factory_kwargs) if qk_norm else nn.Identity()
+        )
 
-        self.pre_norm = nn.LayerNorm(hidden_size,
-                                     elementwise_affine=False,
-                                     eps=1e-6,
-                                     **factory_kwargs)
+        self.pre_norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
         self.mlp_act = get_activation_layer(mlp_act_type)()
         self.modulation = ModulateDiT(
@@ -321,14 +272,9 @@ class MMSingleStreamBlock(nn.Module):
     ) -> torch.Tensor:
         mod_shift, mod_scale, mod_gate = self.modulation(vec).chunk(3, dim=-1)
         x_mod = modulate(self.pre_norm(x), shift=mod_shift, scale=mod_scale)
-        qkv, mlp = torch.split(self.linear1(x_mod),
-                               [3 * self.hidden_size, self.mlp_hidden_dim],
-                               dim=-1)
+        qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
 
-        q, k, v = rearrange(qkv,
-                            "B L (K H D) -> K B L H D",
-                            K=3,
-                            H=self.heads_num)
+        q, k, v = rearrange(qkv, "B L (K H D) -> K B L H D", K=3, H=self.heads_num)
 
         # Apply QK-Norm if needed.
         q = self.q_norm(q).to(v)
@@ -336,19 +282,14 @@ class MMSingleStreamBlock(nn.Module):
 
         def shrink_head(encoder_state, dim):
             local_heads = encoder_state.shape[dim] // nccl_info.sp_size
-            return encoder_state.narrow(
-                dim, nccl_info.rank_within_group * local_heads, local_heads)
+            return encoder_state.narrow(dim, nccl_info.rank_within_group * local_heads, local_heads)
 
-        freqs_cis = (shrink_head(freqs_cis[0],
-                                 dim=0), shrink_head(freqs_cis[1], dim=0))
+        freqs_cis = (shrink_head(freqs_cis[0], dim=0), shrink_head(freqs_cis[1], dim=0))
 
         img_q, txt_q = q[:, :-txt_len, :, :], q[:, -txt_len:, :, :]
         img_k, txt_k = k[:, :-txt_len, :, :], k[:, -txt_len:, :, :]
         img_v, txt_v = v[:, :-txt_len, :, :], v[:, -txt_len:, :, :]
-        img_qq, img_kk = apply_rotary_emb(img_q,
-                                          img_k,
-                                          freqs_cis,
-                                          head_first=False)
+        img_qq, img_kk = apply_rotary_emb(img_q, img_k, freqs_cis, head_first=False)
         assert (
             img_qq.shape == img_q.shape and img_kk.shape == img_k.shape
         ), f"img_kk: {img_qq.shape}, img_q: {img_q.shape}, img_kk: {img_kk.shape}, img_k: {img_k.shape}"
@@ -463,19 +404,15 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         self.text_projection = text_projection
 
         if hidden_size % heads_num != 0:
-            raise ValueError(
-                f"Hidden size {hidden_size} must be divisible by heads_num {heads_num}"
-            )
+            raise ValueError(f"Hidden size {hidden_size} must be divisible by heads_num {heads_num}")
         pe_dim = hidden_size // heads_num
         if sum(rope_dim_list) != pe_dim:
-            raise ValueError(
-                f"Got {rope_dim_list} but expected positional dim {pe_dim}")
+            raise ValueError(f"Got {rope_dim_list} but expected positional dim {pe_dim}")
         self.hidden_size = hidden_size
         self.heads_num = heads_num
 
         # image projection
-        self.img_in = PatchEmbed(self.patch_size, self.in_channels,
-                                 self.hidden_size, **factory_kwargs)
+        self.img_in = PatchEmbed(self.patch_size, self.in_channels, self.hidden_size, **factory_kwargs)
 
         # text projection
         if self.text_projection == "linear":
@@ -494,49 +431,53 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
                 **factory_kwargs,
             )
         else:
-            raise NotImplementedError(
-                f"Unsupported text_projection: {self.text_projection}")
+            raise NotImplementedError(f"Unsupported text_projection: {self.text_projection}")
 
         # time modulation
-        self.time_in = TimestepEmbedder(self.hidden_size,
-                                        get_activation_layer("silu"),
-                                        **factory_kwargs)
+        self.time_in = TimestepEmbedder(self.hidden_size, get_activation_layer("silu"), **factory_kwargs)
 
         # text modulation
-        self.vector_in = MLPEmbedder(self.config.text_states_dim_2,
-                                     self.hidden_size, **factory_kwargs)
+        self.vector_in = MLPEmbedder(self.config.text_states_dim_2, self.hidden_size, **factory_kwargs)
 
         # guidance modulation
-        self.guidance_in = (TimestepEmbedder(
-            self.hidden_size, get_activation_layer("silu"), **factory_kwargs)
-                            if guidance_embed else None)
+        self.guidance_in = (
+            TimestepEmbedder(self.hidden_size, get_activation_layer("silu"), **factory_kwargs)
+            if guidance_embed
+            else None
+        )
 
         # double blocks
-        self.double_blocks = nn.ModuleList([
-            MMDoubleStreamBlock(
-                self.hidden_size,
-                self.heads_num,
-                mlp_width_ratio=mlp_width_ratio,
-                mlp_act_type=mlp_act_type,
-                qk_norm=qk_norm,
-                qk_norm_type=qk_norm_type,
-                qkv_bias=qkv_bias,
-                **factory_kwargs,
-            ) for _ in range(mm_double_blocks_depth)
-        ])
+        self.double_blocks = nn.ModuleList(
+            [
+                MMDoubleStreamBlock(
+                    self.hidden_size,
+                    self.heads_num,
+                    mlp_width_ratio=mlp_width_ratio,
+                    mlp_act_type=mlp_act_type,
+                    qk_norm=qk_norm,
+                    qk_norm_type=qk_norm_type,
+                    qkv_bias=qkv_bias,
+                    **factory_kwargs,
+                )
+                for _ in range(mm_double_blocks_depth)
+            ]
+        )
 
         # single blocks
-        self.single_blocks = nn.ModuleList([
-            MMSingleStreamBlock(
-                self.hidden_size,
-                self.heads_num,
-                mlp_width_ratio=mlp_width_ratio,
-                mlp_act_type=mlp_act_type,
-                qk_norm=qk_norm,
-                qk_norm_type=qk_norm_type,
-                **factory_kwargs,
-            ) for _ in range(mm_single_blocks_depth)
-        ])
+        self.single_blocks = nn.ModuleList(
+            [
+                MMSingleStreamBlock(
+                    self.hidden_size,
+                    self.heads_num,
+                    mlp_width_ratio=mlp_width_ratio,
+                    mlp_act_type=mlp_act_type,
+                    qk_norm=qk_norm,
+                    qk_norm_type=qk_norm_type,
+                    **factory_kwargs,
+                )
+                for _ in range(mm_single_blocks_depth)
+            ]
+        )
 
         self.final_layer = FinalLayer(
             self.hidden_size,
@@ -564,12 +505,8 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         head_dim = self.hidden_size // self.heads_num
         rope_dim_list = self.rope_dim_list
         if rope_dim_list is None:
-            rope_dim_list = [
-                head_dim // target_ndim for _ in range(target_ndim)
-            ]
-        assert (
-            sum(rope_dim_list) == head_dim
-        ), "sum(rope_dim_list) should equal to head_dim of attention layer"
+            rope_dim_list = [head_dim // target_ndim for _ in range(target_ndim)]
+        assert sum(rope_dim_list) == head_dim, "sum(rope_dim_list) should equal to head_dim of attention layer"
         freqs_cos, freqs_sin = get_nd_rotary_pos_embed(
             rope_dim_list,
             rope_sizes,
@@ -599,15 +536,12 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         guidance=None,
     ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         if guidance is None:
-            guidance = torch.tensor([6016.0],
-                                    device=hidden_states.device,
-                                    dtype=torch.bfloat16)
+            guidance = torch.tensor([6016.0], device=hidden_states.device, dtype=torch.bfloat16)
         img = x = hidden_states
         text_mask = encoder_attention_mask
         t = timestep
         txt = encoder_hidden_states[:, 1:]
-        text_states_2 = encoder_hidden_states[:, 0, :self.config.
-                                              text_states_dim_2]
+        text_states_2 = encoder_hidden_states[:, 0, : self.config.text_states_dim_2]
         _, _, ot, oh, ow = x.shape  # codespell:ignore
         tt, th, tw = (
             ot // self.patch_size[0],  # codespell:ignore
@@ -625,9 +559,7 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         # guidance modulation
         if self.guidance_embed:
             if guidance is None:
-                raise ValueError(
-                    "Didn't get guidance strength for guidance distilled model."
-                )
+                raise ValueError("Didn't get guidance strength for guidance distilled model.")
 
             # our timestep_embedding is merged into guidance_in(TimestepEmbedder)
             vec = vec + self.guidance_in(guidance)
@@ -637,11 +569,9 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         if self.text_projection == "linear":
             txt = self.txt_in(txt)
         elif self.text_projection == "single_refiner":
-            txt = self.txt_in(txt, t,
-                              text_mask if self.use_attention_mask else None)
+            txt = self.txt_in(txt, t, text_mask if self.use_attention_mask else None)
         else:
-            raise NotImplementedError(
-                f"Unsupported text_projection: {self.text_projection}")
+            raise NotImplementedError(f"Unsupported text_projection: {self.text_projection}")
 
         txt_seq_len = txt.shape[1]
         img_seq_len = img.shape[1]
@@ -674,8 +604,7 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
         img = x[:, :img_seq_len, ...]
 
         # ---------------------------- Final layer ------------------------------
-        img = self.final_layer(img,
-                               vec)  # (N, T, patch_size ** 2 * out_channels)
+        img = self.final_layer(img, vec)  # (N, T, patch_size ** 2 * out_channels)
 
         img = self.unpatchify(img, tt, th, tw)
         assert not return_dict, "return_dict is not supported."
@@ -702,24 +631,25 @@ class HYVideoDiffusionTransformer(ModelMixin, ConfigMixin):
 
     def params_count(self):
         counts = {
-            "double":
-            sum([
-                sum(p.numel() for p in block.img_attn_qkv.parameters()) +
-                sum(p.numel() for p in block.img_attn_proj.parameters()) +
-                sum(p.numel() for p in block.img_mlp.parameters()) +
-                sum(p.numel() for p in block.txt_attn_qkv.parameters()) +
-                sum(p.numel() for p in block.txt_attn_proj.parameters()) +
-                sum(p.numel() for p in block.txt_mlp.parameters())
-                for block in self.double_blocks
-            ]),
-            "single":
-            sum([
-                sum(p.numel() for p in block.linear1.parameters()) +
-                sum(p.numel() for p in block.linear2.parameters())
-                for block in self.single_blocks
-            ]),
-            "total":
-            sum(p.numel() for p in self.parameters()),
+            "double": sum(
+                [
+                    sum(p.numel() for p in block.img_attn_qkv.parameters())
+                    + sum(p.numel() for p in block.img_attn_proj.parameters())
+                    + sum(p.numel() for p in block.img_mlp.parameters())
+                    + sum(p.numel() for p in block.txt_attn_qkv.parameters())
+                    + sum(p.numel() for p in block.txt_attn_proj.parameters())
+                    + sum(p.numel() for p in block.txt_mlp.parameters())
+                    for block in self.double_blocks
+                ]
+            ),
+            "single": sum(
+                [
+                    sum(p.numel() for p in block.linear1.parameters())
+                    + sum(p.numel() for p in block.linear2.parameters())
+                    for block in self.single_blocks
+                ]
+            ),
+            "total": sum(p.numel() for p in self.parameters()),
         }
         counts["attn+mlp"] = counts["double"] + counts["single"]
         return counts

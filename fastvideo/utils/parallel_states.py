@@ -1,4 +1,4 @@
-#This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
+# This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
 
 import os
 
@@ -47,13 +47,13 @@ def initialize_sequence_parallel_group(sequence_parallel_size):
     assert (
         world_size % sequence_parallel_size == 0
     ), "world_size must be divisible by sequence_parallel_size, but got world_size: {}, sequence_parallel_size: {}".format(
-        world_size, sequence_parallel_size)
+        world_size, sequence_parallel_size
+    )
     nccl_info.sp_size = sequence_parallel_size
     nccl_info.global_rank = rank
     num_sequence_parallel_groups: int = world_size // sequence_parallel_size
     for i in range(num_sequence_parallel_groups):
-        ranks = range(i * sequence_parallel_size,
-                      (i + 1) * sequence_parallel_size)
+        ranks = range(i * sequence_parallel_size, (i + 1) * sequence_parallel_size)
         group = dist.new_group(ranks)
         if rank in ranks:
             nccl_info.group = group

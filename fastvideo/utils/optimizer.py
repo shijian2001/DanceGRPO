@@ -1,4 +1,4 @@
-#This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
+# This code file is from [https://github.com/hao-ai-lab/FastVideo], which is licensed under Apache License 2.0.
 
 import torch
 from accelerate.logging import get_logger
@@ -15,23 +15,20 @@ def get_optimizer(args, params_to_optimize, use_deepspeed: bool = False):
         )
         args.optimizer = "adamw"
 
-    if args.use_8bit_adam and not (args.optimizer.lower()
-                                   not in ["adam", "adamw"]):
+    if args.use_8bit_adam and not (args.optimizer.lower() not in ["adam", "adamw"]):
         logger.warning(
             f"use_8bit_adam is ignored when optimizer is not set to 'Adam' or 'AdamW'. Optimizer was "
-            f"set to {args.optimizer.lower()}")
+            f"set to {args.optimizer.lower()}"
+        )
 
     if args.use_8bit_adam:
         try:
             import bitsandbytes as bnb
         except ImportError:
-            raise ImportError(
-                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
-            )
+            raise ImportError("To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`.")
 
     if args.optimizer.lower() == "adamw":
-        optimizer_class = (bnb.optim.AdamW8bit
-                           if args.use_8bit_adam else torch.optim.AdamW)
+        optimizer_class = bnb.optim.AdamW8bit if args.use_8bit_adam else torch.optim.AdamW
 
         optimizer = optimizer_class(
             params_to_optimize,
@@ -52,9 +49,7 @@ def get_optimizer(args, params_to_optimize, use_deepspeed: bool = False):
         try:
             import prodigyopt
         except ImportError:
-            raise ImportError(
-                "To use Prodigy, please install the prodigyopt library: `pip install prodigyopt`"
-            )
+            raise ImportError("To use Prodigy, please install the prodigyopt library: `pip install prodigyopt`")
 
         optimizer_class = prodigyopt.Prodigy
 
