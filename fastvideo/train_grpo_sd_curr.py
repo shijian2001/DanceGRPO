@@ -16,6 +16,7 @@ import datetime
 from concurrent import futures
 import time
 from absl import app, flags
+from fastvideo.datasets import SceneDataset
 from ml_collections import config_flags
 from accelerate import Accelerator
 from accelerate.utils import set_seed, ProjectConfiguration
@@ -27,47 +28,15 @@ import numpy as np
 from fastvideo.models.stable_diffusion.pipeline_with_logprob import pipeline_with_logprob
 from fastvideo.models.stable_diffusion.ddim_with_logprob import ddim_step_with_logprob
 import torch
-import wandb
 from functools import partial
 import tqdm
-import tempfile
 from PIL import Image
-import torch.distributed as dist
-import functools
-import random
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from safetensors.torch import save_file
 from curr_sampler import CurrDistributedSampler
 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
-
-
-class SceneDataset(Dataset):
-    def __init__(self, file_path):
-        import json
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # Flatten all scenes from different difficulty levels
-        self.scenes = []
-        for difficulty, scenes_list in data.items():
-            for scene in scenes_list:
-                # Add difficulty info to each scene
-                scene["difficulty"] = difficulty
-                self.scenes.append(scene)
-
-    def __len__(self):
-        return len(self.scenes)
-
-    def __getitem__(self, idx):
-        scene = self.scenes[idx]
-        return {
-            "prompt": scene["prompt"],
-            "qa": scene["qa"],
-            "difficulty": scene["difficulty"],
-        }
 
 
 def custom_collate_fn(batch):

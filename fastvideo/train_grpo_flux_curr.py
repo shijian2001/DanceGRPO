@@ -12,12 +12,12 @@
 import argparse
 import math
 import os
-from pathlib import Path
+from fastvideo.curr_sampler import CurrDistributedSampler
+from fastvideo.datasets import SceneDataset
 from fastvideo.utils.parallel_states import (
     initialize_sequence_parallel_state,
     destroy_sequence_parallel_group,
     get_sequence_parallel_state,
-    nccl_info,
 )
 from fastvideo.utils.communications_flux import sp_parallel_dataloader_wrapper
 from fastvideo.utils.validation import log_validation
@@ -580,8 +580,10 @@ def main(args):
         checkpoint = torch.load(cp, map_location=f"cuda:{device}")
         model.load_state_dict(checkpoint["state_dict"])
         processor = get_tokenizer("ViT-H-14")
-        reward_model = model.to(device)
-        reward_model.eval()
+
+        from models.reward import FineVQAReward
+
+        reward_model = FineVQAReward(model="clip-flant5-xxl")
 
     main_print(f"--> loading model from {args.pretrained_model_name_or_path}")
     # keep the master weight to float32
@@ -645,13 +647,21 @@ def main(args):
         last_epoch=init_steps - 1,
     )
 
-    train_dataset = LatentDataset(args.data_json_path, args.num_latent_t, args.cfg)
-    sampler = DistributedSampler(
-        train_dataset, rank=rank, num_replicas=world_size, shuffle=True, seed=args.sampler_seed
+    dataset = SceneDataset("./data/curr_rft_data_20250709.json")
+
+    sampler = CurrDistributedSampler(
+        dataset,
+        num_replicas=torch.distributed.get_world_size(),
+        rank=torch.distributed.get_rank(),
+        seed=123543,
+        strategy="cosine",  # "timestep", "balance", "cosine", "gaussian"
+        total_steps=300,
+        alpha=0.5,
+        beta=0.8,
     )
 
     train_dataloader = DataLoader(
-        train_dataset,
+        dataset,
         sampler=sampler,
         collate_fn=latent_collate_function,
         pin_memory=True,
