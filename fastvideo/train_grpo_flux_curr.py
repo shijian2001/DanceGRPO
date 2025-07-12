@@ -330,6 +330,9 @@ def sample_reference_model(
                 latents = unpack_latents(latents, h, w, 8)
                 latents = (latents / 0.3611) + 0.1159
                 images = vae.decode(latents, return_dict=False)
+                # TODO: 是不是真的不需要[0]
+                print(images)
+                print(images.shape)
                 image = images[0]
                 decoded_image = image_processor.postprocess(image)
         decoded_image[0].save(f"./images/flux_{rank}_{index}.png")
