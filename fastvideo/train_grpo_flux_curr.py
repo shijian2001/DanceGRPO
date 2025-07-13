@@ -16,6 +16,7 @@ import os
 import diffusers
 from fastvideo.curr_sampler import CurrDistributedSampler
 from fastvideo.dataset.scene_dataset import SceneDataset
+from fastvideo.models.reward import FineVQAReward
 from fastvideo.utils.parallel_states import (
     initialize_sequence_parallel_state,
     destroy_sequence_parallel_group,
@@ -550,51 +551,6 @@ def main(args):
     # Handle the repository creation
     if rank <= 0 and args.output_dir is not None:
         os.makedirs(args.output_dir, exist_ok=True)
-
-    # For mixed precision training we cast all non-trainable weigths to half-precision
-    # as these weights are only used for inference, keeping weights in full precision is not required
-    if args.use_hpsv2:
-        from hpsv2.src.open_clip import create_model_and_transforms, get_tokenizer
-        from typing import Union
-        import huggingface_hub
-        from hpsv2.utils import root_path, hps_version_map
-
-        def initialize_model():
-            model_dict = {}
-            model, preprocess_train, preprocess_val = create_model_and_transforms(
-                "ViT-H-14",
-                "./hps_ckpt/open_clip_pytorch_model.bin",
-                precision="amp",
-                device=device,
-                jit=False,
-                force_quick_gelu=False,
-                force_custom_text=False,
-                force_patch_dropout=False,
-                force_image_size=None,
-                pretrained_image=False,
-                image_mean=None,
-                image_std=None,
-                light_augmentation=True,
-                aug_cfg={},
-                output_dict=True,
-                with_score_predictor=False,
-                with_region_predictor=False,
-            )
-            model_dict["model"] = model
-            model_dict["preprocess_val"] = preprocess_val
-            return model_dict
-
-        model_dict = initialize_model()
-        model = model_dict["model"]
-        preprocess_val = model_dict["preprocess_val"]
-        # cp = huggingface_hub.hf_hub_download("xswu/HPSv2", hps_version_map["v2.1"])
-        cp = "./hps_ckpt/HPS_v2.1_compressed.pt"
-
-        checkpoint = torch.load(cp, map_location=f"cuda:{device}")
-        model.load_state_dict(checkpoint["state_dict"])
-        processor = get_tokenizer("ViT-H-14")
-
-        from models.reward import FineVQAReward
 
         reward_model = FineVQAReward(model="clip-flant5-xxl")
 
